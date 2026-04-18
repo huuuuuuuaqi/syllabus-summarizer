@@ -4,8 +4,24 @@ import { NextResponse } from "next/server";
 /** Prefer dated snapshot IDs; aliases like `claude-sonnet-4-5` can fail depending on API/account. */
 const MODEL = "claude-sonnet-4-5-20250929";
 
-const SYSTEM_PROMPT =
-  "You are a helpful assistant for university students. Summarize the syllabus into these sections: Course Overview (2-3 sentences), Key Dates (bullet list), Grading Breakdown (bullet list), Weekly Workload estimate, and Professor Contact Info.";
+const SYSTEM_PROMPT = `You are a helpful assistant for university students. Summarize the syllabus into exactly these sections using these exact headers:
+
+## Course Overview
+2-3 sentences describing the course.
+
+## Key Dates
+- List each important date as a bullet point
+
+## Grading Breakdown
+- List each grading component and percentage as a bullet point
+
+## Weekly Workload
+1-2 sentences estimating the weekly time commitment.
+
+## Professor Contact
+Name, email, and office hours.
+
+Always use these exact section headers. If information for a section is not found in the syllabus, write "Not specified" under that section.`;
 
 function textFromContent(
   content: Anthropic.Message["content"],

@@ -1,35 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/** Map markdown # / ## / ### to styled headings; use h3–h6 under the card’s “Summary” h2 for outline. */
-const summaryMarkdownComponents: Partial<Components> = {
-  h1: (props) => (
-    <h3
-      className="mt-6 mb-2 text-2xl font-bold tracking-tight text-foreground first:mt-0"
-      {...props}
-    />
-  ),
-  h2: (props) => (
-    <h4
-      className="mt-5 mb-2 text-xl font-semibold tracking-tight text-foreground first:mt-0"
-      {...props}
-    />
-  ),
-  h3: (props) => (
-    <h5 className="mt-4 mb-2 text-lg font-semibold text-foreground first:mt-0" {...props} />
-  ),
-  h4: (props) => (
-    <h6 className="mt-4 mb-1.5 text-base font-semibold text-foreground" {...props} />
-  ),
-  h5: (props) => (
-    <p className="mt-3 text-base font-semibold text-foreground" {...props} />
-  ),
-  h6: (props) => (
-    <p className="mt-3 text-sm font-semibold text-foreground" {...props} />
-  ),
+type SummarySection = { title: string; body: string };
+
+function parseSummarySections(raw: string): SummarySection[] {
+  const text = raw.trim();
+  if (!text) return [];
+
+  const parts = text.split(/\n(?=## )/);
+  const sections: SummarySection[] = [];
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith("## ")) {
+      const rest = trimmed.slice(3);
+      const nl = rest.indexOf("\n");
+      const title = (nl === -1 ? rest : rest.slice(0, nl)).trim();
+      const body = (nl === -1 ? "" : rest.slice(nl + 1)).trim();
+      sections.push({ title, body });
+    } else {
+      const lines = trimmed.split("\n");
+      let title = "Summary";
+      let body = trimmed;
+      if (lines[0]?.startsWith("# ")) {
+        title = lines[0].replace(/^#\s+/, "").trim();
+        body = lines.slice(1).join("\n").trim();
+      }
+      sections.push({ title, body });
+    }
+  }
+
+  return sections;
+}
+
+function emojiForSectionTitle(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("course overview")) return "📋";
+  if (t.includes("key dates")) return "📅";
+  if (t.includes("grading")) return "📊";
+  if (t.includes("workload")) return "⏱";
+  if (t.includes("professor") || t.includes("contact")) return "👤";
+  return "📌";
+}
+
+const sectionBodyMarkdownComponents: Partial<Components> = {
+  h1: (props) => <p className="my-2 font-semibold first:mt-0" {...props} />,
+  h2: (props) => <p className="my-2 font-semibold first:mt-0" {...props} />,
+  h3: (props) => <p className="my-2 font-semibold first:mt-0" {...props} />,
   p: (props) => <p className="my-2 leading-relaxed first:mt-0 last:mb-0" {...props} />,
   ul: (props) => (
     <ul className="my-2 list-disc space-y-1 pl-5 leading-relaxed" {...props} />
@@ -54,9 +76,19 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
 
   async function handleSummarize() {
     setError(null);
+    setCopyError(null);
     setSummary(null);
     setLoading(true);
     try {
@@ -101,10 +133,28 @@ export default function Home() {
     setText("");
     setSummary(null);
     setError(null);
+    setCopyError(null);
+    setCopyFeedback(false);
+  }
+
+  async function handleCopySummary() {
+    if (summary === null) return;
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopyFeedback(true);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopyFeedback(false), 2000);
+    } catch {
+      setCopyError("Could not copy to clipboard.");
+    }
   }
 
   const canClear =
     text.trim().length > 0 || summary !== null || error !== null;
+
+  const summarySections =
+    summary !== null && !error ? parseSummarySections(summary) : [];
 
   return (
     <main className="flex min-h-full flex-1 flex-col px-6 py-16 sm:px-8">
@@ -131,6 +181,9 @@ export default function Home() {
             disabled={loading}
             className="min-h-[min(28rem,60vh)] w-full resize-y rounded-lg border border-neutral-200 bg-neutral-50/80 p-4 text-base leading-relaxed text-foreground placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-400/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-800 dark:bg-neutral-950/50 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600 dark:focus:ring-neutral-600/30"
           />
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            {text.length} {text.length === 1 ? "character" : "characters"}
+          </p>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             <button
@@ -144,7 +197,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleSummarize}
-              disabled={loading}
+              disabled={loading || text.trim().length === 0}
               className="rounded-lg bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               {loading ? "Summarizing..." : "Summarize"}
@@ -162,22 +215,51 @@ export default function Home() {
         )}
 
         {summary !== null && !error && (
-          <section
-            className="rounded-xl border border-neutral-200 bg-neutral-50/90 p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/60"
-            aria-live="polite"
-          >
-            <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-              Summary
-            </h2>
-            <div className="max-w-none text-base leading-relaxed text-foreground">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={summaryMarkdownComponents}
-              >
-                {summary}
-              </ReactMarkdown>
+          <div className="space-y-6" aria-live="polite">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                  Summary
+                </h2>
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  className="rounded-lg border border-neutral-300 bg-transparent px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  {copyFeedback ? "Copied!" : "Copy summary"}
+                </button>
+              </div>
+              {copyError && (
+                <p className="text-right text-sm text-red-600 dark:text-red-400">
+                  {copyError}
+                </p>
+              )}
             </div>
-          </section>
+
+            <div className="space-y-4">
+              {summarySections.map((section, i) => (
+                <article
+                  key={`${i}-${section.title}`}
+                  className="rounded-xl border border-neutral-200 bg-neutral-50/90 p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/60"
+                >
+                  <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+                    <span aria-hidden>{emojiForSectionTitle(section.title)}</span>
+                    <span>{section.title}</span>
+                  </h3>
+                  {section.body ? (
+                    <div className="mt-3 max-w-none text-base leading-relaxed text-foreground">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={sectionBodyMarkdownComponents}
+                      >
+                        {section.body}
+                      </ReactMarkdown>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </main>
